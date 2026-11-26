@@ -8,6 +8,8 @@
 
 Official implementation of **PropUQ-MAS: Propagation-Aware Uncertainty Quantification for LLM Multi-Agent Systems**.
 
+> **This fork** adds the paper's propagation rule alongside the released one, NormMSP variants, and Table 1 tooling. See [`DECISIONS.md`](DECISIONS.md) for every change and [`docs/experiment_plan_2026-11-26.md`](docs/experiment_plan_2026-11-26.md) for the reproduction plan (commands and how to read results).
+
 ## Highlights
 
 - Propagation-aware and interaction-aware uncertainty for LLM multi-agent systems.

@@ -102,10 +102,11 @@ The mode names in folder paths changed, so new runs never reuse upstream caches 
 
 ### C8. Documentation
 
-**Files:** `README.md`, `sampling_baselines/uprop/README.md`, this file
+**Files:** `README.md`, `sampling_baselines/uprop/README.md`, `docs/experiment_plan_2026-11-26.md`, this file
 
 - The README describes the four propagation rows, NormMSP / NormMSP-Answer, the switch, and the output folders.
 - The incorrect claim that single-parent nodes are unaffected by normalization was replaced.
+- The experiment plan lives in `docs/`, and the README links to it and to this file.
 
 ---
 
@@ -148,7 +149,7 @@ Three generation runs per (model, dataset, topology) cell:
 | S2: paper rule | R1 · Prop-Uncertainty-Final | R2 · Prop-Uncertainty-Final |
 | S3: α̂ + normalized | R1 · Normalized | R2 · Normalized |
 
-The full experiment plan (phases, commands, expectations, report template) is kept outside this repository, in `experiment_plans/2026-11-26_propuq_setup_comparison.md` in the parent research folder.
+The full experiment plan (phases, commands, expectations, report template) is in [`docs/experiment_plan_2026-11-26.md`](docs/experiment_plan_2026-11-26.md).
 
 ---
 
