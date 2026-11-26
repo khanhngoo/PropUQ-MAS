@@ -108,7 +108,7 @@ outputs/<folder>/<org>/<model>/uq/uq_metrics_mas_<task>_<topo>_nodes4[_role]_see
 
 - `_role` appears only for sequential and hierarchical.
 - The raw file ends in `_n-1`, and the UQ files in `_n<dataset size>`.
-- Metric values are under `metrics.metrics_by_uq_method.<method>.<row>` with `auroc`, `prr` and `n_with_uncertainty`. Accuracy and time are under `metadata`.
+- Metric values are under `metrics.metrics_by_uq_method.<method>.<row>` with `auroc`, `prr`, `ece`, `brier` and `n_with_uncertainty`. Accuracy and time are under `metadata`.
 
 ## 5. Setups (how results are read)
 

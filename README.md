@@ -8,7 +8,7 @@
 
 Official implementation of **PropUQ-MAS: Propagation-Aware Uncertainty Quantification for LLM Multi-Agent Systems**.
 
-> **This fork** adds the paper's propagation rule alongside the released one, NormMSP variants, and Table 1 tooling. See [`DECISIONS.md`](DECISIONS.md) for every change and [`docs/experiment_plan_2026-11-26.md`](docs/experiment_plan_2026-11-26.md) for the reproduction plan (commands and how to read results).
+> **This fork** adds the paper's propagation rule alongside the released one, NormMSP variants, and Table 1 tooling. See [`DECISIONS.md`](DECISIONS.md) for every change, [`docs/experiment_plan_2026-11-26.md`](docs/experiment_plan_2026-11-26.md) for the reproduction plan, and [`docs/experiment_plan_2026-11-27_quantization.md`](docs/experiment_plan_2026-11-27_quantization.md) for the quantization study.
 
 ## Highlights
 
@@ -119,7 +119,7 @@ outputs/<uq_mode>/<model>/uq/uq_metrics_*.json
 outputs/mas_graphs/<graph_config>/
 ```
 
-The metrics JSON reports accuracy, runtime, AUROC, and Prediction Rejection Ratio (PRR) for local and propagation-aware uncertainty.
+The metrics JSON reports accuracy, runtime, AUROC, Prediction Rejection Ratio (PRR), ECE (15 bins) and Brier score for local and propagation-aware uncertainty.
 
 Generate MAS graph artifacts without loading a model:
 

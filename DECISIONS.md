@@ -108,6 +108,22 @@ The mode names in folder paths changed, so new runs never reuse upstream caches 
 - The incorrect claim that single-parent nodes are unaffected by normalization was replaced.
 - The experiment plan lives in `docs/`, and the README links to it and to this file.
 
+### C9. Calibration metrics: ECE and Brier
+
+**Files:** `methods/uncertainty_quantification.py`, `analysis/make_table1.py`
+
+- Every metrics row now also has `ece` (15 equal-width bins) and `brier`, computed on confidence = 1 − uncertainty, same examples as AUROC/PRR.
+- Printed in the run summary and written to `table1_long.csv`. AUROC/PRR values are unchanged.
+- Why: AUROC/PRR only check ranking. Quantization studies report calibration, and double counting at reconvergent nodes (diamond/decentralized) should show up in calibration before ranking.
+
+### C10. Precision comparison script
+
+**Files:** `analysis/compare_precision.py` (new), `docs/experiment_plan_2026-11-27_quantization.md` (new)
+
+- Compares quantized checkpoints (default `Qwen/Qwen3-8B-FP8`, `Qwen/Qwen3-8B-AWQ`) against the BF16 base on the same configs.
+- Reports accuracy, answer flips vs base (correct→wrong and wrong→correct, paired by question), AUROC/PRR/ECE/Brier for local and the main propagation row with the gain, and diagnostics (α̂ report rate, truncation, missing local UQ, mean local uncertainty per agent).
+- Recomputes metrics from `uq_preds`, so older files also get ECE/Brier. Writes `outputs/precision_report.md` and `outputs/precision_long.csv`. Standard library only.
+
 ---
 
 ## 3. Decisions
@@ -130,6 +146,9 @@ The mode names in folder paths changed, so new runs never reuse upstream caches 
 | D14 | Old caches with an `MSP` key | Still scored (`KNOWN_UQ_METHODS` includes `MSP`; the report script maps it to NormMSP) | Lets older runs be rescored | Drop support | Claude |
 | D15 | Sequence MSP (1 − ∏p) variant | Not added | Saturates near 1 for long outputs; not needed for now | Add `SeqMSP-Answer` | user |
 | D16 | UProp / PRR / missing-u behaviour (F6–F8) | Unchanged, documented | Out of scope for the first reproduction | Fix now | user (UProp deferred) |
+| D17 | Calibration metrics | ECE (15 equal-width bins) + Brier on 1 − u | Standard in quantization-UQ work; Brier needs no binning | Adaptive-bin ECE only | user asked; binning by Claude |
+| D18 | How to quantize | Official pre-quantized checkpoints (`-FP8` = 8-bit, `-AWQ` = 4-bit), loaded by vLLM as is | No calibration-data choices of our own; FP8 is native on H100; "Q8/Q4" GGUF is poorly supported in vLLM | Quantize ourselves (AutoAWQ/GPTQ), or vLLM on-the-fly `quantization="fp8"` | user |
+| D19 | Flip pairing | By question text; positional fallback if questions repeat | Robust to reordering between runs | Positional only | Claude |
 
 ---
 
@@ -165,5 +184,7 @@ The full experiment plan (phases, commands, expectations, report template) is in
   - With the switch, NormMSP prompts are byte-identical to upstream MSP prompts (9/9).
 - **Output folders:** switched and normal runs go to different folders.
 - **Report script:** end-to-end test on fake outputs written with `run.py`'s own path builders and UQ writers. Values match the underlying JSON.
+- **ECE/Brier:** hand-checked toys (labels [1,0], conf [0.9,0.2] → ECE 0.15, Brier 0.025; conf 1.0 falls in the last bin).
+- **Precision script:** fake base/FP8/AWQ outputs with planted flips; flip rates, gaps for missing runs, and CSV rows check out.
 
 **Not done:** no real generation run (no GPU available yet). The first GPU run should check the α̂ report rate in NormMSP mode and the NormMSP-Answer truncation rate; both appear in the report's diagnostics.

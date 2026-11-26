@@ -338,7 +338,7 @@ def write_csv(cells, path: Path) -> int:
     count = 0
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["model", "task", "topology", "run", "uq_method", "row", "auroc", "prr",
+        writer.writerow(["model", "task", "topology", "run", "uq_method", "row", "auroc", "prr", "ece", "brier",
                          "n_with_uncertainty", "accuracy", "metrics_file"])
         for (model, task, topo), cell in cells.items():
             for run, payload in cell.metrics.items():
@@ -346,7 +346,7 @@ def write_csv(cells, path: Path) -> int:
                 for method, rows in by_method.items():
                     for row, vals in rows.items():
                         writer.writerow([model, task, topo, run, method, row, vals.get("auroc"), vals.get("prr"),
-                                         vals.get("n_with_uncertainty"), cell.meta(run, "accuracy"),
+                                         vals.get("ece"), vals.get("brier"), vals.get("n_with_uncertainty"), cell.meta(run, "accuracy"),
                                          cell.files[run][0]])
                         count += 1
     return count

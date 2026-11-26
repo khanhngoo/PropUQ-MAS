@@ -514,6 +514,42 @@ def _prr(
     return (uncertainty_auc - random_auc) / denom
 
 
+ECE_NUM_BINS = 15
+
+
+def _ece(labels: List[int], confidences: List[float], num_bins: int = ECE_NUM_BINS):
+    """Expected calibration error with equal-width confidence bins.
+
+    Treats confidence = 1 - uncertainty as P(final answer correct). Only
+    meaningful for comparing runs of the same local UQ method (e.g. across
+    precisions or topologies): NormMSP is a mean token probability, not a
+    calibrated correctness probability, so its absolute ECE is large.
+    """
+    n = len(labels)
+    if n == 0 or n != len(confidences):
+        return None
+    bin_count = [0] * num_bins
+    bin_conf = [0.0] * num_bins
+    bin_correct = [0] * num_bins
+    for label, conf in zip(labels, confidences):
+        b = min(num_bins - 1, int(conf * num_bins))  # conf == 1.0 goes to the last bin
+        bin_count[b] += 1
+        bin_conf[b] += conf
+        bin_correct[b] += label
+    return sum(
+        abs(bin_correct[b] - bin_conf[b]) / n
+        for b in range(num_bins)
+        if bin_count[b]
+    )
+
+
+def _brier(labels: List[int], confidences: List[float]):
+    n = len(labels)
+    if n == 0 or n != len(confidences):
+        return None
+    return sum((conf - label) ** 2 for label, conf in zip(labels, confidences)) / n
+
+
 def _uncertainty_to_confidence(
     u: Optional[float],
     uq_method: str,
@@ -546,6 +582,8 @@ def evaluate_uncertainty_metrics(preds: List[Dict], source: str = "local", uq_me
         "n_with_uncertainty": len(labels),
         "auroc": _auroc(labels, ranking_scores),
         "prr": _prr(labels, probs_correct),
+        "ece": _ece(labels, probs_correct),
+        "brier": _brier(labels, probs_correct),
     }
 
 
@@ -663,7 +701,9 @@ def print_uncertainty_metrics_summary(metrics: Dict):
             print(
                 f"{label}: "
                 f"AUROC={round4_or_none(values['auroc'])} | "
-                f"PRR={round4_or_none(values['prr'])}"
+                f"PRR={round4_or_none(values['prr'])} | "
+                f"ECE={round4_or_none(values.get('ece'))} | "
+                f"Brier={round4_or_none(values.get('brier'))}"
             )
 
 
