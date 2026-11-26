@@ -3,7 +3,6 @@
 - **Date:** 2026-11-26
 - **Status:** planned (not run)
 - **Code:** this repository (changes vs upstream are logged in [`DECISIONS.md`](../DECISIONS.md))
-- **Compute:** 1 GPU with vLLM (no local GPU; run on cloud)
 
 ## 1. Purpose
 
@@ -46,7 +45,7 @@ Both NormMSP variants exclude the tokens of the appended `<alpha/>` / `<local_un
 | Setting | Value |
 |---|---|
 | Models | `Qwen/Qwen3-4B`, `Qwen/Qwen3-8B`, `google/gemma-3-12b-it` (gated on Hugging Face: request access and `huggingface-cli login` first) |
-| Datasets | GSM8K (test, 1,319), MBPP+ (test, 378), MedQA (`data/medqa.json`, 300); confirm sizes from the first run's `n…` file suffix |
+| Datasets | GSM8K (test, 1,319) and MBPP+ (test, 378) download automatically from Hugging Face on first use (the server needs internet access); MedQA (300) is included in the repository as `data/medqa.json` |
 | Topologies | sequential, hierarchical, decentralized |
 | Agents | 4 |
 | Prompt | `--mas_prompt role` (sequential/hierarchical use role prompts; decentralized automatically uses the generic graph prompt). Role prompts match the paper: Table 8's "sequential, role" numbers equal Table 1's Qwen3-8B MedQA numbers. |
@@ -167,7 +166,7 @@ This writes:
 - `outputs/table1_report.md`: paper vs ours per model, the step-by-step table, diagnostics, and the files used.
 - `outputs/table1_long.csv`: every metrics row, for later analysis.
 
-Runs not done yet show as "–". Use `--models`, `--tasks` and `--topologies` to narrow the scope (e.g. Phase 1: `--models Qwen/Qwen3-8B --tasks medqa`). The script needs only the standard library, so it runs on a laptop after copying `outputs/` back.
+Runs not done yet show as "–". Use `--models`, `--tasks` and `--topologies` to narrow the scope (e.g. Phase 1: `--models Qwen/Qwen3-8B --tasks medqa`). The script needs only the standard library.
 
 ### 8.1 Paper reference: Table 1 (transcribed)
 
