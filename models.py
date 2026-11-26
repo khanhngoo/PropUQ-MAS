@@ -2,6 +2,8 @@ import torch
 from typing import Dict, List, Optional, Tuple
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from token_uq import TOKEN_PROB_UQ_METHODS, token_prob_uncertainties
+
 try:
     from vllm import LLM, SamplingParams
     _HAS_VLLM = True
@@ -42,7 +44,7 @@ def _past_length(past_key_values: Optional[Tuple]) -> int:
     return k.shape[-2]
 
 
-LOGIT_UQ_METHODS = ["MSP"]
+LOGIT_UQ_METHODS = list(TOKEN_PROB_UQ_METHODS)
 
 
 def _selected_uq_methods(args) -> List[str]:
@@ -72,7 +74,7 @@ def _uses_logit_uq(args) -> bool:
 
 
 def _uses_msp_uq(args) -> bool:
-    return "MSP" in _selected_uq_methods(args)
+    return _uses_logit_uq(args)
 
 
 def _apply_repetition_penalty_(scores: torch.Tensor, sequences: List[List[int]], penalty: float) -> None:
@@ -103,48 +105,6 @@ def _top_p_sample(filtered_logits: torch.Tensor, top_p: float) -> torch.Tensor:
     sorted_probs = torch.softmax(sorted_logits, dim=-1)
     sampled_sorted = torch.multinomial(sorted_probs, num_samples=1)
     return sorted_indices.gather(-1, sampled_sorted).squeeze(-1)
-
-
-def _uq_stats_from_raw_logits(
-    chosen_logprobs: List[float],
-) -> Dict[str, Optional[float]]:
-    if not chosen_logprobs:
-        return {
-            "sequence_probability": None,
-            "msp": None,
-            "generated_token_count": 0,
-        }
-    total_logprob = float(sum(chosen_logprobs))
-    mean_logprob = total_logprob / len(chosen_logprobs)
-    mean_token_probability = float(torch.exp(torch.tensor(mean_logprob, dtype=torch.float64)).item())
-    msp = max(0.0, min(1.0, 1.0 - mean_token_probability))
-    return {
-        "sequence_probability": None,
-        "mean_token_probability": mean_token_probability,
-        "msp": msp,
-        "generated_token_count": len(chosen_logprobs),
-    }
-
-
-def _uq_stats_from_cumulative_logprob(
-    cumulative_logprob: Optional[float],
-    generated_token_count: int,
-) -> Dict[str, Optional[float]]:
-    if cumulative_logprob is None or generated_token_count <= 0:
-        return {
-            "sequence_probability": None,
-            "mean_token_probability": None,
-            "msp": None,
-            "generated_token_count": generated_token_count,
-        }
-    mean_logprob = float(cumulative_logprob) / generated_token_count
-    mean_token_probability = float(torch.exp(torch.tensor(mean_logprob, dtype=torch.float64)).item())
-    return {
-        "sequence_probability": None,
-        "mean_token_probability": mean_token_probability,
-        "msp": max(0.0, min(1.0, 1.0 - mean_token_probability)),
-        "generated_token_count": generated_token_count,
-    }
 
 
 def _extract_vllm_token_logprob(entry, token_id: int) -> Optional[float]:
@@ -326,16 +286,16 @@ class ModelWrapper:
             if not token_ids and raw_text:
                 token_ids = self.tokenizer(raw_text, add_special_tokens=False)["input_ids"]
             generations.append(raw_text.strip())
+            token_logprobs = _extract_vllm_sampled_token_logprobs(
+                getattr(first, "logprobs", None),
+                token_ids,
+            )
             detail = {
                 "text_raw": raw_text,
                 "generated_token_ids": token_ids,
-                "token_logprobs": _extract_vllm_sampled_token_logprobs(
-                    getattr(first, "logprobs", None),
-                    token_ids,
-                ),
-                "uq_stats": _uq_stats_from_cumulative_logprob(
-                    getattr(first, "cumulative_logprob", None),
-                    len(token_ids),
+                "token_logprobs": token_logprobs,
+                "uq_stats": token_prob_uncertainties(
+                    token_ids, token_logprobs, self.tokenizer
                 ) if _uses_msp_uq(self.args) else None,
             }
             details.append(detail)
@@ -435,7 +395,9 @@ class ModelWrapper:
                     "text_raw": raw_text,
                     "generated_token_ids": token_ids,
                     "token_logprobs": list(chosen_logprobs[row_idx]),
-                    "uq_stats": _uq_stats_from_raw_logits(chosen_logprobs[row_idx]),
+                    "uq_stats": token_prob_uncertainties(
+                        token_ids, chosen_logprobs[row_idx], self.tokenizer
+                    ) if _uses_msp_uq(self.args) else None,
                 }
             )
         if return_generation_details:

@@ -21,7 +21,9 @@ from utils import (
     strip_structured_uncertainty_blocks,
 )
 
-LOGIT_UQ_METHODS = ("MSP",)
+from token_uq import NORM_MSP, TOKEN_PROB_UQ_METHODS
+
+LOGIT_UQ_METHODS = TOKEN_PROB_UQ_METHODS
 MAS_PROMPT_CHOICES = ("norole", "role")
 
 _SEQUENTIAL_AGENT_SPECS = (
@@ -186,9 +188,6 @@ class MASMethod:
                 parsed[agent_match.group(1).strip()] = score
         return parsed
 
-    def _default_alpha_scores(self, incoming_labels: List[str]) -> Dict[str, float]:
-        return {label: 1.0 for label in incoming_labels}
-
     def _local_uncertainty_by_method(
         self,
         text: str,
@@ -199,8 +198,11 @@ class MASMethod:
         for method in selected:
             if method == "Verb":
                 out[method] = self._extract_local_uncertainty(text)
-            elif method == "MSP":
-                out[method] = None if uq_stats is None else uq_stats.get("msp")
+            elif method == NORM_MSP:
+                # One token-probability run records both variants
+                # (all tokens and answer-only), so they share the same outputs.
+                for variant in TOKEN_PROB_UQ_METHODS:
+                    out[variant] = None if uq_stats is None else uq_stats.get(variant)
         return out
 
     def _alpha(
@@ -208,12 +210,10 @@ class MASMethod:
         text: str,
         incoming_labels: List[str],
     ) -> Dict[str, float]:
-        selected = _selected_uq_methods(self.args)
-        if "Verb" in selected:
-            return self._extract_alpha_scores(text)
-        if any(method in LOGIT_UQ_METHODS for method in selected):
-            return self._default_alpha_scores(incoming_labels)
-        return {}
+        # Adoption scores are elicited in every local-UQ mode (Verb and NormMSP),
+        # as in the paper. A parent with no parsable score is skipped during
+        # propagation (edge weight 0); there is no silent default of 1.
+        return self._extract_alpha_scores(text)
 
     @staticmethod
     def _strip_think_blocks(text: str) -> str:
@@ -380,7 +380,7 @@ class MASMethod:
                             "output": "",
                             "peer_output": "",
                             "local_uncertainty": None,
-                            "local_uncertainty_by_method": {method: None for method in selected_methods},
+                            "local_uncertainty_by_method": self._local_uncertainty_by_method("", None),
                             "logits_uq_stats": None,
                             "alpha": self._alpha("", incoming_labels),
                             "skipped": True,

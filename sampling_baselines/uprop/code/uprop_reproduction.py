@@ -17,7 +17,7 @@ from typing import Iterable, Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = ROOT.parents[1]
-DEFAULT_RAW_DIR = REPO_ROOT / "outputs" / "MSP"
+DEFAULT_RAW_DIR = REPO_ROOT / "outputs" / "NormMSP_noalpha"
 DEFAULT_OUTPUT_DIR = ROOT / "results"
 DEFAULT_GENERATION_RUNTIME_PATH = DEFAULT_OUTPUT_DIR / "medqa" / "generation_runtime"
 TARGET_MODEL = "Qwen/Qwen3-8B"
@@ -112,7 +112,7 @@ def agent_negative_logprob(agent: dict, *, pe_normalization: str) -> float:
     if not isinstance(token_logprobs, list) or not token_logprobs:
         raise ValueError(
             "UProp requires per-token log probabilities. Regenerate raw predictions with "
-            "`--local_uncertainty_mode MSP` after the MAS trace has token_logprobs enabled."
+            "`--local_uncertainty_mode NormMSP --no_alpha_elicitation`."
         )
     values = [float(value) for value in token_logprobs if value is not None]
     if not values:

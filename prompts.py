@@ -54,6 +54,10 @@ def _uses_verb(args) -> bool:
     return "Verb" in _selected_uq_methods(args)
 
 
+def _alpha_elicitation_enabled(args) -> bool:
+    return not bool(getattr(args, "no_alpha_elicitation", False))
+
+
 def _selected_uq_methods(args) -> list[str]:
     if args is None:
         return []
@@ -84,7 +88,9 @@ def _build_uncertainty_instruction(
     if args is None:
         return ""
     use_verb = _uses_verb(args)
-    use_alpha = allow_alpha and use_verb
+    # Adoption scores (alpha) are part of PropUQ itself, so they are elicited
+    # for every local-UQ mode, not only Verb, unless --no_alpha_elicitation.
+    use_alpha = allow_alpha and _alpha_elicitation_enabled(args)
     if not use_verb and not use_alpha:
         return ""
     lines = [""]
@@ -162,7 +168,7 @@ def _build_uncertainty_instruction_for_targets(args, *, alpha_targets=None) -> s
         return ""
     use_verb = _uses_verb(args)
     alpha_targets = [str(target).strip() for target in (alpha_targets or []) if str(target).strip()]
-    use_alpha = bool(alpha_targets) and use_verb
+    use_alpha = bool(alpha_targets) and _alpha_elicitation_enabled(args)
     if not use_verb and not use_alpha:
         return ""
 

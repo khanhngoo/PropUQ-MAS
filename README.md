@@ -92,8 +92,15 @@ Use `--force_generation` to ignore cached predictions and `--force_uq` to overwr
 | Dataset | `gsm8k`, `medqa`, `mbppplus` |
 | Model | `Qwen/Qwen3-4B`, `Qwen/Qwen3-8B`, `Qwen/Qwen3-14B`, `google/gemma-3-12b-it` |
 | MAS topology | `sequential`, `hierarchical`, `decentralized` |
-| Local UQ | `Verb`, `MSP` |
+| Local UQ | `Verb`, `NormMSP` (formerly `MSP`) |
 | Prompt | `norole`, `role` |
+
+`NormMSP` is length-normalized MSP, `1 - exp(mean token log-prob)` (equivalently `1 - 1/perplexity`), not sequence-level `1 - P(output)`. A single `NormMSP` run reports two local estimators from the same generations:
+
+- `NormMSP`: all generated tokens, including the `<think>` block.
+- `NormMSP-Answer`: only tokens after the last `</think>`. If thinking never closes (truncated output), it is set to `1.0`; if the output has no think tags, the whole output counts as the answer.
+
+Both exclude the tokens of the appended `<alpha .../>` / `<local_uncertainty .../>` tags. Adoption scores (alpha) are now elicited in every mode, including `NormMSP`; earlier releases set alpha to 1 in MSP mode and did not ask for it. To reproduce those runs exactly, pass `--no_alpha_elicitation` (prompts are then identical to the original MSP prompts) and read the `Alpha1-Normalized` metrics row; such runs are written to `outputs/<mode>_noalpha/`. Without the switch, outputs go to `outputs/NormMSP/`, so older `outputs/MSP/` caches are not reused. The paper's "w/o alpha" ablation on the same generations is the `Alpha1` row (see Reproducibility Notes).
 
 Role-specialized prompts are available for four-agent sequential and hierarchical systems. Other topology/node-count combinations automatically use the generic graph prompt.
 
@@ -134,7 +141,16 @@ See [`sampling_baselines/comparison.md`](sampling_baselines/comparison.md) for c
 - The default seed is `42`; stochastic generation may still vary across hardware and library versions.
 - Reduce `GENERATE_BS` if GPU memory is limited.
 - Raw-prediction caches do not encode every decoding option; use `--force_generation` after changing generation settings.
-- The paper uses self-reported adoption scores directly. During post-hoc replay, this release normalizes positive incoming scores at multi-parent nodes; single-parent nodes are unaffected.
+- Post-hoc replay computes four propagation variants side by side from the same generations:
+
+  | Metrics row | Fields | Edge weight α | Meaning |
+  |---|---|---|---|
+  | `Prop-Uncertainty-Final` | `prop_uncertainty*` | self-reported, used as is | Paper rule (Eq. 2) |
+  | `Prop-Uncertainty-Final-Normalized` | `prop_norm_uncertainty*` | self-reported, divided by the node's sum | Original release rule; a single parent's weight is always 1 |
+  | `Prop-Uncertainty-Final-Alpha1` | `prop_alpha1_uncertainty*` | 1 on every edge | Paper's "w/o α̂" ablation (Table 4) |
+  | `Prop-Uncertainty-Final-Alpha1-Normalized` | `prop_alpha1_norm_uncertainty*` | 1 on every edge, divided by the node's sum (1/k) | Original release rule in MSP mode |
+
+  With self-reported scores, a parent with a missing or zero score is skipped; the α = 1 variants ignore the reports. Re-running UQ on cached raw predictions (without `--force_generation`) is enough to get all four.
 - Generated predictions and metrics are ignored by Git, so archive the relevant `outputs/` directory separately.
 
 ## Citation

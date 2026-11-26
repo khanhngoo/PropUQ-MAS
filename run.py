@@ -31,7 +31,7 @@ def build_log_root() -> Path:
     return Path(__file__).resolve().parent / "outputs"
 
 
-LOCAL_UNCERTAINTY_MODE_CHOICES = ["Verb", "MSP"]
+LOCAL_UNCERTAINTY_MODE_CHOICES = ["Verb", "NormMSP"]
 MODEL_CHOICES = [
     "Qwen/Qwen3-4B",
     "Qwen/Qwen3-8B",
@@ -81,7 +81,12 @@ def _local_uncertainty_mode_dirname(values) -> str:
 
 
 def _model_output_dir(args: argparse.Namespace) -> Path:
-    root = build_log_root() / _local_uncertainty_mode_dirname(args.local_uncertainty_modes)
+    mode_dir = _local_uncertainty_mode_dirname(args.local_uncertainty_modes)
+    if getattr(args, "no_alpha_elicitation", False):
+        # Keep runs without the alpha request apart from runs with it, since
+        # raw-pred cache names do not encode the prompt.
+        mode_dir += "_noalpha"
+    root = build_log_root() / mode_dir
     model_parts = [part for part in str(args.model_name).split("/") if part]
     if not model_parts:
         return root / "unknown_model"
@@ -251,7 +256,21 @@ def main():
         type=str,
         choices=LOCAL_UNCERTAINTY_MODE_CHOICES,
         default=None,
-        help="Choose exactly one of Verb or MSP.",
+        help=(
+            "Choose exactly one of Verb or NormMSP. NormMSP (formerly MSP) is "
+            "length-normalized MSP; one NormMSP run reports both NormMSP (all tokens) "
+            "and NormMSP-Answer (tokens after </think>)."
+        ),
+    )
+    parser.add_argument(
+        "--no_alpha_elicitation",
+        action="store_true",
+        help=(
+            "Do not ask agents for adoption scores (alpha) in the prompt. Use with NormMSP to reproduce "
+            "the original release's MSP runs, then read the Alpha1-Normalized metrics row; the "
+            "reported-alpha rows reduce to the local score because no alpha exists. Outputs go to "
+            "outputs/<mode>_noalpha/."
+        ),
     )
     parser.add_argument("--mas_context_length", type=int, default=-1, help="MAS context length limit; <=0 means no truncation")
     parser.add_argument(
@@ -457,6 +476,7 @@ def main():
                 "resolved_mas_prompt": getattr(args, "resolved_mas_prompt", "norole"),
                 "local_uncertainty_mode": args.local_uncertainty_modes[0] if len(args.local_uncertainty_modes) == 1 else None,
                 "local_uncertainty_modes": args.local_uncertainty_modes,
+                "alpha_elicitation": not args.no_alpha_elicitation,
                 "accuracy": acc,
                 "correct": correct,
                 "total_time_sec": round(total_time, 4),

@@ -26,7 +26,7 @@ sampling_baselines/uprop/
 
 ## Run
 
-Generate UProp trajectories first. This writes MSP raw files with per-token log-probabilities under `outputs/MSP`.
+Generate UProp trajectories first. This writes NormMSP raw files with per-token log-probabilities under `outputs/NormMSP_noalpha` (generated with `--no_alpha_elicitation`, matching the original MSP runs, which did not ask for adoption scores).
 
 ```bash
 bash sampling_baselines/uprop/scripts/uprop_generate_medqa.sh

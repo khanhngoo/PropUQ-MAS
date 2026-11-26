@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UPROP_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${UPROP_DIR}/../.." && pwd)"
 
-RAW_DIR="${RAW_DIR:-${REPO_ROOT}/outputs/MSP}"
+RAW_DIR="${RAW_DIR:-${REPO_ROOT}/outputs/NormMSP_noalpha}"
 OUTPUT_DIR="${OUTPUT_DIR:-${UPROP_DIR}/results}"
 GENERATION_RUNTIME_PATH="${GENERATION_RUNTIME_PATH:-${OUTPUT_DIR}/medqa/generation_runtime}"
 PYTHON_BIN="${PYTHON_BIN:-python}"

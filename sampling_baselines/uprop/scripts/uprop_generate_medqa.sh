@@ -46,7 +46,8 @@ for seed in "${seed_array[@]}"; do
     --mas_topology sequential \
     --mas_prompt role \
     --mas_node_num 4 \
-    --local_uncertainty_mode MSP \
+    --local_uncertainty_mode NormMSP \
+    --no_alpha_elicitation \
     --seed "${seed}" \
     --max_samples "${MAX_SAMPLES}" \
     --temperature "${TEMPERATURE}" \

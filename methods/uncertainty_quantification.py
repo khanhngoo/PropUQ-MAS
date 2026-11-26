@@ -6,6 +6,29 @@ from typing import Dict, List, Optional
 
 PRR_MAX_REJECTION_RATE = 0.5
 
+# Local-UQ methods whose value is already an uncertainty in [0, 1].
+# "MSP" is kept so raw preds cached before the NormMSP rename still score.
+KNOWN_UQ_METHODS = {"Verb", "MSP", "NormMSP", "NormMSP-Answer"}
+
+# Propagation variants computed side by side during posthoc replay, all from the
+# same generations. Two switches:
+#   alpha:     "reported" = self-reported adoption scores (missing -> parent skipped)
+#              "ones"     = every incoming edge gets alpha = 1 (ignores reports)
+#   normalize: divide each alpha by the sum of incoming alphas at the node
+#
+#   "prop"             reported, raw   -> paper rule (Eq. 2)
+#   "prop_norm"        reported, norm  -> original release rule for Verb
+#                                         (a single parent always ends up at 1)
+#   "prop_alpha1"      ones, raw       -> paper's "w/o alpha" ablation (Table 4)
+#   "prop_alpha1_norm" ones, norm      -> original release rule for MSP mode
+#                                         (alpha = 1/k at a node with k parents)
+PROP_SOURCES = {
+    "prop": {"alpha": "reported", "normalize_alpha": False, "label": "Prop-Uncertainty-Final", "short": "Prop"},
+    "prop_norm": {"alpha": "reported", "normalize_alpha": True, "label": "Prop-Uncertainty-Final-Normalized", "short": "PropNorm"},
+    "prop_alpha1": {"alpha": "ones", "normalize_alpha": False, "label": "Prop-Uncertainty-Final-Alpha1", "short": "PropA1"},
+    "prop_alpha1_norm": {"alpha": "ones", "normalize_alpha": True, "label": "Prop-Uncertainty-Final-Alpha1-Normalized", "short": "PropA1Norm"},
+}
+
 
 def parse_uncertainty_value(value):
     if value is None:
@@ -142,7 +165,17 @@ def _jsonl_alpha_lookup(alpha: Dict[str, float]) -> Dict[str, float]:
 def _alpha_lookup(
     alpha: Dict[str, float],
     incoming_agent_names: List[str],
+    normalize: bool = False,
 ) -> Dict[str, float]:
+    """Map each incoming agent to its edge weight.
+
+    normalize=False (paper, Eq. 2): use the self-reported alpha in [0, 1] as is.
+    normalize=True (original release): divide by the sum of positive incoming
+    alphas, so weights at a node sum to 1.
+
+    In both modes a parent whose alpha is missing (not reported / unparsable)
+    or <= 0 is skipped, which is equivalent to an edge weight of 0.
+    """
     raw_lookup = _jsonl_alpha_lookup(alpha)
     incoming_alpha: Dict[str, float] = {}
     total_alpha = 0.0
@@ -153,6 +186,9 @@ def _alpha_lookup(
             continue
         incoming_alpha[normalized_name] = alpha_value
         total_alpha += alpha_value
+
+    if not normalize:
+        return incoming_alpha
 
     if total_alpha <= 0.0:
         return {}
@@ -169,11 +205,12 @@ def _compute_prop_uncertainty(
     alpha: Dict[str, float],
     previous_prop_uncertainties: Dict[str, float],
     incoming_agent_names: List[str],
+    normalize_alpha: bool = False,
 ) -> Optional[float]:
     base_uncertainty = _clamp01(local_uncertainty)
     factors = [1.0 - base_uncertainty] if base_uncertainty is not None else []
     has_signal = base_uncertainty is not None
-    alpha_lookup = _alpha_lookup(alpha, incoming_agent_names)
+    alpha_lookup = _alpha_lookup(alpha, incoming_agent_names, normalize=normalize_alpha)
 
     for incoming_name in incoming_agent_names:
         alpha_value = alpha_lookup.get(_normalize_agent_label(incoming_name))
@@ -196,7 +233,7 @@ def _normalized_structural_uncertainty(value: Optional[float], uq_method: str) -
     parsed = parse_uncertainty_value(value)
     if parsed is None:
         return None
-    if uq_method in {"Verb", "MSP"}:
+    if uq_method in KNOWN_UQ_METHODS:
         return _clamp01(parsed)
     return _clamp01(parsed)
 
@@ -269,13 +306,14 @@ def enrich_mas_pred_with_posthoc_uncertainty(pred: Dict) -> Dict:
     uq_methods = _pred_available_uq_methods(pred)
     pred["local_uncertainty_agent_list_by_method"] = {}
     pred["local_uncertainty_final_by_method"] = {}
-    pred["prop_uncertainty_agent_list_by_method"] = {}
-    pred["prop_uncertainty_final_by_method"] = {}
+    for source in PROP_SOURCES:
+        pred[f"{source}_uncertainty_agent_list_by_method"] = {}
+        pred[f"{source}_uncertainty_final_by_method"] = {}
 
     for uq_method in uq_methods:
-        prop_uncertainty_states: Dict[str, float] = {}
-        prop_values: List[Optional[float]] = []
         local_values: List[float] = []
+        states: Dict[str, Dict[str, float]] = {source: {} for source in PROP_SOURCES}
+        values: Dict[str, List[Optional[float]]] = {source: [] for source in PROP_SOURCES}
 
         for agent in agents:
             role = str(agent.get("role", "")).lower()
@@ -284,41 +322,49 @@ def enrich_mas_pred_with_posthoc_uncertainty(pred: Dict) -> Dict:
             structural_local_uncertainty = _normalized_structural_uncertainty(local_uncertainty, uq_method)
             incoming_agent_names = _graph_incoming_agent_names(agent, pred) or []
             alpha = _agent_alpha_for_method(agent, uq_method)
-            prop_uncertainty = _compute_prop_uncertainty(
-                local_uncertainty=structural_local_uncertainty,
-                alpha=alpha,
-                previous_prop_uncertainties=prop_uncertainty_states,
-                incoming_agent_names=incoming_agent_names,
-            )
+            aliases = [_normalize_agent_label(alias) for alias in _agent_aliases(name, role, pred)]
 
             agent.setdefault("local_uncertainty_num_by_method", {})[uq_method] = parse_uncertainty_value(local_uncertainty)
-            agent.setdefault("prop_uncertainty_by_method", {})[uq_method] = prop_uncertainty
-            prop_values.append(prop_uncertainty)
             parsed_local = parse_uncertainty_value(local_uncertainty)
             if parsed_local is not None:
                 local_values.append(parsed_local)
-            for alias in _agent_aliases(name, role, pred):
+
+            alpha_ones = {name: 1.0 for name in incoming_agent_names}
+
+            for source, spec in PROP_SOURCES.items():
+                prop_uncertainty = _compute_prop_uncertainty(
+                    local_uncertainty=structural_local_uncertainty,
+                    alpha=alpha_ones if spec["alpha"] == "ones" else alpha,
+                    previous_prop_uncertainties=states[source],
+                    incoming_agent_names=incoming_agent_names,
+                    normalize_alpha=spec["normalize_alpha"],
+                )
+                agent.setdefault(f"{source}_uncertainty_by_method", {})[uq_method] = prop_uncertainty
+                values[source].append(prop_uncertainty)
                 if prop_uncertainty is not None:
-                    prop_uncertainty_states[_normalize_agent_label(alias)] = prop_uncertainty
+                    for alias in aliases:
+                        states[source][alias] = prop_uncertainty
 
         pred["local_uncertainty_agent_list_by_method"][uq_method] = local_values
         pred["local_uncertainty_final_by_method"][uq_method] = local_values[-1] if local_values else None
-        pred["prop_uncertainty_agent_list_by_method"][uq_method] = [v for v in prop_values if v is not None]
-        pred["prop_uncertainty_final_by_method"][uq_method] = (
-            pred["prop_uncertainty_agent_list_by_method"][uq_method][-1]
-            if pred["prop_uncertainty_agent_list_by_method"][uq_method]
-            else None
-        )
+        for source in PROP_SOURCES:
+            agent_list = [v for v in values[source] if v is not None]
+            pred[f"{source}_uncertainty_agent_list_by_method"][uq_method] = agent_list
+            pred[f"{source}_uncertainty_final_by_method"][uq_method] = agent_list[-1] if agent_list else None
+
     if "Verb" in uq_methods:
         pred["local_uncertainty_agent_list"] = pred["local_uncertainty_agent_list_by_method"].get("Verb", [])
         pred["local_uncertainty_final"] = pred["local_uncertainty_final_by_method"].get("Verb")
-        pred["prop_uncertainty_agent_list"] = pred["prop_uncertainty_agent_list_by_method"].get("Verb", [])
-        pred["prop_uncertainty_final"] = pred["prop_uncertainty_final_by_method"].get("Verb")
+        for source in PROP_SOURCES:
+            pred[f"{source}_uncertainty_agent_list"] = pred[f"{source}_uncertainty_agent_list_by_method"].get("Verb", [])
+            pred[f"{source}_uncertainty_final"] = pred[f"{source}_uncertainty_final_by_method"].get("Verb")
         for agent in agents:
             if isinstance(agent.get("local_uncertainty_num_by_method"), dict):
                 agent["local_uncertainty_num"] = agent["local_uncertainty_num_by_method"].get("Verb")
-            if isinstance(agent.get("prop_uncertainty_by_method"), dict):
-                agent["prop_uncertainty"] = agent["prop_uncertainty_by_method"].get("Verb")
+            for source in PROP_SOURCES:
+                by_method = agent.get(f"{source}_uncertainty_by_method")
+                if isinstance(by_method, dict):
+                    agent[f"{source}_uncertainty"] = by_method.get("Verb")
     return pred
 
 
@@ -331,8 +377,8 @@ def apply_posthoc_uncertainty(preds: List[Dict], method: str):
 
 
 def _final_uncertainty_from_pred(pred: Dict, uq_method: str = "Verb", source: str = "local"):
-    if source == "prop":
-        value = _pred_method_field(pred, "prop_uncertainty_final", uq_method)
+    if source in PROP_SOURCES:
+        value = _pred_method_field(pred, f"{source}_uncertainty_final", uq_method)
         return parse_uncertainty_value(value)
 
     value = _pred_method_field(pred, "local_uncertainty_final", uq_method)
@@ -349,8 +395,8 @@ def _final_uncertainty_from_pred(pred: Dict, uq_method: str = "Verb", source: st
 
 
 def _all_agent_uncertainties_from_pred(pred: Dict, uq_method: str = "Verb", source: str = "local"):
-    if source == "prop":
-        value = _pred_method_field(pred, "prop_uncertainty_agent_list", uq_method)
+    if source in PROP_SOURCES:
+        value = _pred_method_field(pred, f"{source}_uncertainty_agent_list", uq_method)
     else:
         value = _pred_method_field(pred, "local_uncertainty_agent_list", uq_method)
     if isinstance(value, list):
@@ -362,7 +408,7 @@ def _all_agent_uncertainties_from_pred(pred: Dict, uq_method: str = "Verb", sour
         return vals
 
     vals = []
-    agent_field = "prop_uncertainty" if source == "prop" else "local_uncertainty"
+    agent_field = f"{source}_uncertainty" if source in PROP_SOURCES else "local_uncertainty"
     for agent in pred.get("agents", []):
         if source == "local":
             parsed = _agent_local_uncertainty_for_method(agent, uq_method)
@@ -476,9 +522,7 @@ def _uncertainty_to_confidence(
     value = parse_uncertainty_value(u)
     if value is None:
         return None
-    if uq_method == "Verb":
-        return _clamp01(1.0 - value)
-    if uq_method == "MSP":
+    if uq_method in KNOWN_UQ_METHODS:
         return _clamp01(1.0 - value)
     return None
 
@@ -508,9 +552,13 @@ def evaluate_uncertainty_metrics(preds: List[Dict], source: str = "local", uq_me
 def _filter_complete_case_preds(preds: List[Dict], uq_method: str) -> List[Dict]:
     filtered: List[Dict] = []
     for pred in preds:
-        has_local = _final_uncertainty_from_pred(pred, uq_method=uq_method, source="local") is not None
-        has_prop = _final_uncertainty_from_pred(pred, uq_method=uq_method, source="prop") is not None
-        if has_local and has_prop:
+        # Require local and every propagation variant so all rows of a metrics
+        # summary are computed on the same set of examples.
+        has_all = all(
+            _final_uncertainty_from_pred(pred, uq_method=uq_method, source=source) is not None
+            for source in ("local", *PROP_SOURCES)
+        )
+        if has_all:
             filtered.append(pred)
     return filtered
 
@@ -530,23 +578,26 @@ def print_posthoc_sample_reports(preds: List[Dict], args):
         print(f"Problem #{idx} Posthoc:")
         for uq_method in _pred_available_uq_methods(pred):
             local_final = _final_uncertainty_from_pred(pred, uq_method=uq_method, source="local")
-            prop_final = _final_uncertainty_from_pred(pred, uq_method=uq_method, source="prop")
 
             print(f"  UQ Method: {uq_method}")
             if agents:
                 print("  Agent Uncertainties:")
                 for agent in agents:
+                    prop_parts = " | ".join(
+                        f"{spec['short']}={_fmt_unc(_agent_method_field(agent, f'{source}_uncertainty', uq_method))}"
+                        for source, spec in PROP_SOURCES.items()
+                    )
                     print(
                         f"    {agent.get('name', 'Agent')}: "
                         f"Local={_fmt_unc(_agent_local_uncertainty_for_method(agent, uq_method))} | "
-                        f"Prop={_fmt_unc(_agent_method_field(agent, 'prop_uncertainty', uq_method))}"
+                        f"{prop_parts}"
                     )
             print(
                 f"  Local-Uncertainty-Final: {_fmt_unc(local_final)}"
             )
-            print(
-                f"  Prop-Uncertainty-Final: {_fmt_unc(prop_final)}"
-            )
+            for source, spec in PROP_SOURCES.items():
+                prop_final = _final_uncertainty_from_pred(pred, uq_method=uq_method, source=source)
+                print(f"  {spec['label']}: {_fmt_unc(prop_final)}")
 
 
 def export_preds_jsonl(preds: List[Dict], output_path: Path):
@@ -578,14 +629,16 @@ def load_preds_jsonl(input_path: Path) -> List[Dict]:
 
 def _build_metrics_summary_for_method(preds: List[Dict], uq_method: str) -> Dict:
     complete_case_preds = _filter_complete_case_preds(preds, uq_method)
-    return {
+    summary = {
         "Local-Uncertainty-Final": evaluate_uncertainty_metrics(
             complete_case_preds, source="local", uq_method=uq_method
         ),
-        "Prop-Uncertainty-Final": evaluate_uncertainty_metrics(
-            complete_case_preds, source="prop", uq_method=uq_method
-        ),
     }
+    for source, spec in PROP_SOURCES.items():
+        summary[spec["label"]] = evaluate_uncertainty_metrics(
+            complete_case_preds, source=source, uq_method=uq_method
+        )
+    return summary
 
 
 def build_uncertainty_metrics_summary(preds: List[Dict]) -> Dict:
