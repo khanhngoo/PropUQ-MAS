@@ -148,6 +148,7 @@ The mode names in folder paths changed, so new runs never reuse upstream caches 
 | D16 | UProp / PRR / missing-u behaviour (F6–F8) | Unchanged, documented | Out of scope for the first reproduction | Fix now | user (UProp deferred) |
 | D17 | Calibration metrics | ECE (15 equal-width bins) + Brier on 1 − u | Standard in quantization-UQ work; Brier needs no binning | Adaptive-bin ECE only | user asked; binning by Claude |
 | D18 | How to quantize | Official pre-quantized checkpoints (`-FP8` = 8-bit, `-AWQ` = 4-bit), loaded by vLLM as is | No calibration-data choices of our own; FP8 is native on H100; "Q8/Q4" GGUF is poorly supported in vLLM | Quantize ourselves (AutoAWQ/GPTQ), or vLLM on-the-fly `quantization="fp8"` | user |
+| D20 | Generation batch size | `--generate_bs` 64 for MedQA/GSM8K, 32 for MBPP+, fixed per task for BF16 and quantized runs | 16 leaves most of an 80 GB H100 idle; fixing it per task keeps flip counts free of batching effects | 16 everywhere | user |
 | D19 | Flip pairing | By question text; positional fallback if questions repeat | Robust to reordering between runs | Positional only | Claude |
 
 ---
